@@ -215,6 +215,75 @@ def extract_jira_references_from_output(dataset_row: Dict[str, Any]) -> List[str
         return []
 
 
+def evaluate_jira_truthfulness(dataset_row: Dict[str, Any]) -> int:
+    """
+    Evaluate the truthfulness of JIRA ticket references in AI output.
+    
+    This function compares JIRA tickets mentioned in AI output against
+    the actual JIRA tickets available in the input data.
+    
+    Args:
+        dataset_row: A single row from the LangSmith dataset containing
+                    both 'inputs_json' and 'outputs_json' fields
+    
+    Returns:
+        int: 1 if all AI references are valid (truthful), 
+             0 if any AI references are invalid (hallucinated)
+    """
+    try:
+        print(f"🔍 Evaluating JIRA truthfulness for row: {dataset_row.get('id', 'unknown')}")
+        
+        # Step 1: Extract JIRA tickets from input data (ground truth)
+        jira_raw_data = extract_jira_data_from_input(dataset_row)
+        if jira_raw_data:
+            input_tickets = extract_jira_ticket_numbers(jira_raw_data)
+        else:
+            input_tickets = []
+        
+        # Step 2: Extract JIRA references from AI output
+        output_references = extract_jira_references_from_output(dataset_row)
+        
+        print(f"📥 Input tickets available: {len(input_tickets)}")
+        print(f"📤 Output references made: {len(output_references)}")
+        
+        # Step 3: Handle edge cases
+        if not output_references:
+            # AI made no JIRA references - this is considered truthful
+            print("✅ AI made no JIRA references - scoring as truthful (1)")
+            return 1
+        
+        if not input_tickets:
+            # No input JIRA data to verify against, but AI made references
+            print("⚠️ No input JIRA data available, but AI made references - scoring as untruthful (0)")
+            return 0
+        
+        # Step 4: Compare output references against input tickets
+        input_set = set(input_tickets)
+        output_set = set(output_references)
+        
+        # Find valid and invalid references
+        valid_references = output_set.intersection(input_set)
+        invalid_references = output_set - input_set
+        
+        print(f"✅ Valid references: {len(valid_references)}")
+        print(f"❌ Invalid references: {len(invalid_references)}")
+        
+        if invalid_references:
+            print(f"🚨 Hallucinated tickets detected: {list(invalid_references)}")
+            print("📊 Truthfulness score: 0 (contains hallucinations)")
+            return 0
+        else:
+            print(f"✓ All references are valid: {list(valid_references)}")
+            print("📊 Truthfulness score: 1 (completely truthful)")
+            return 1
+            
+    except Exception as e:
+        print(f"❌ Error during truthfulness evaluation: {e}")
+        # In case of error, default to untruthful to be conservative
+        print("📊 Truthfulness score: 0 (error during evaluation)")
+        return 0
+
+
 def test_jira_extraction():
     """
     Test function to demonstrate JIRA data extraction with sample data.
