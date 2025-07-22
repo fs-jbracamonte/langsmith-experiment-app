@@ -8,7 +8,7 @@ Tests the extract_jira_data_from_input function with actual LangSmith dataset.
 import pandas as pd
 import os
 import glob
-from jira_evaluator import extract_jira_data_from_input, extract_jira_ticket_numbers
+from jira_evaluator import extract_jira_data_from_input, extract_jira_ticket_numbers, extract_jira_references_from_output
 
 
 def find_csv_files():
@@ -98,8 +98,10 @@ def test_with_real_dataset():
         print("=" * 60)
         
         # Test with selected number of rows
-        total_tickets_found = []
+        total_input_tickets = []
+        total_output_references = []
         successful_extractions = 0
+        row_results = []  # Store results for each row
         
         for row_index in range(num_rows):
             print(f"\n📄 ROW {row_index + 1}/{num_rows}")
@@ -130,59 +132,166 @@ def test_with_real_dataset():
                     preview = jira_data[:300] + "\n..." if len(jira_data) > 300 else jira_data
                     print(preview)
                 
-                # Test ticket number extraction
-                print(f"\n🎫 Extracting ticket numbers...")
-                ticket_numbers = extract_jira_ticket_numbers(jira_data)
-                
-                if ticket_numbers:
-                    total_tickets_found.extend(ticket_numbers)
-                    print(f"✅ Found {len(ticket_numbers)} unique tickets in this row")
-                    
-                    # Show first few tickets for each row
-                    sample_size = min(5, len(ticket_numbers))
-                    print(f"📋 Sample tickets: {ticket_numbers[:sample_size]}")
-                    if len(ticket_numbers) > sample_size:
-                        print(f"   ... and {len(ticket_numbers) - sample_size} more")
-                        
-                else:
-                    print("❌ No ticket numbers found in this row")
+                # Test ticket number extraction from input
+                print(f"\n🎫 Extracting JIRA tickets from INPUT...")
+                input_tickets = extract_jira_ticket_numbers(jira_data)
                 
             else:
-                print("❌ No JIRA data found in this row")
-        
-        # Show overall summary
-        print(f"\n🎯 OVERALL SUMMARY")
-        print("=" * 60)
-        print(f"📊 Rows processed: {num_rows}")
-        print(f"✅ Successful extractions: {successful_extractions}")
-        print(f"📈 Success rate: {(successful_extractions/num_rows)*100:.1f}%")
-        
-        if total_tickets_found:
-            # Remove duplicates across all rows
-            unique_total_tickets = list(set(total_tickets_found))
-            print(f"🎫 Total unique tickets found: {len(unique_total_tickets)}")
-            print(f"🔢 Total ticket references: {len(total_tickets_found)}")
+                input_tickets = []
+                print("❌ No JIRA data found in input")
             
-            # Group by project prefix
+            # Test JIRA reference extraction from output
+            print(f"\n🎯 Extracting JIRA references from OUTPUT...")
+            output_references = extract_jira_references_from_output(current_row)
+            
+            # Store results for this row
+            row_result = {
+                'row_index': row_index + 1,
+                'row_id': current_row['id'],
+                'input_tickets': input_tickets,
+                'output_references': output_references,
+                'has_jira_data': len(input_tickets) > 0
+            }
+            row_results.append(row_result)
+            
+            # Add to totals
+            total_input_tickets.extend(input_tickets)
+            total_output_references.extend(output_references)
+            
+            # Show comparison for this row
+            print(f"\n📊 ROW {row_index + 1} COMPARISON:")
+            print(f"   📥 Input tickets found: {len(input_tickets)}")
+            if input_tickets:
+                sample_size = min(5, len(input_tickets))
+                print(f"      Sample: {input_tickets[:sample_size]}")
+                if len(input_tickets) > sample_size:
+                    print(f"      ... and {len(input_tickets) - sample_size} more")
+            
+            print(f"   📤 Output references found: {len(output_references)}")
+            if output_references:
+                sample_size = min(5, len(output_references))
+                print(f"      Sample: {output_references[:sample_size]}")
+                if len(output_references) > sample_size:
+                    print(f"      ... and {len(output_references) - sample_size} more")
+            
+            # Quick truthfulness check for this row
+            if input_tickets and output_references:
+                input_set = set(input_tickets)
+                output_set = set(output_references)
+                valid_refs = output_set.intersection(input_set)
+                invalid_refs = output_set - input_set
+                
+                print(f"   ✅ Valid references: {len(valid_refs)} (AI mentioned real tickets)")
+                print(f"   ❌ Invalid references: {len(invalid_refs)} (AI mentioned non-existent tickets)")
+                
+                if invalid_refs:
+                    print(f"      🚨 Possibly hallucinated: {list(invalid_refs)[:3]}{'...' if len(invalid_refs) > 3 else ''}")
+                if valid_refs:
+                    print(f"      ✓ Correctly referenced: {list(valid_refs)[:3]}{'...' if len(valid_refs) > 3 else ''}")
+            
+            if input_tickets:
+                successful_extractions += 1
+        
+        # Show detailed overall summary
+        print(f"\n🎯 DETAILED ANALYSIS SUMMARY")
+        print("=" * 80)
+        print(f"📊 Rows processed: {num_rows}")
+        print(f"✅ Rows with JIRA data: {successful_extractions}")
+        print(f"📈 JIRA data success rate: {(successful_extractions/num_rows)*100:.1f}%")
+        
+        # Calculate unique tickets
+        unique_input_tickets = list(set(total_input_tickets)) if total_input_tickets else []
+        unique_output_references = list(set(total_output_references)) if total_output_references else []
+        
+        print(f"\n📥 INPUT ANALYSIS:")
+        print(f"   🎫 Total unique tickets in source data: {len(unique_input_tickets)}")
+        print(f"   🔢 Total ticket mentions: {len(total_input_tickets)}")
+        if unique_input_tickets:
+            sample_input = unique_input_tickets[:10]
+            print(f"   📋 Sample tickets: {sample_input}")
+            if len(unique_input_tickets) > 10:
+                print(f"       ... and {len(unique_input_tickets) - 10} more")
+        
+        print(f"\n📤 OUTPUT ANALYSIS:")
+        print(f"   🎫 Total unique AI references: {len(unique_output_references)}")
+        print(f"   🔢 Total reference mentions: {len(total_output_references)}")
+        if unique_output_references:
+            sample_output = unique_output_references[:10]
+            print(f"   📋 Sample references: {sample_output}")
+            if len(unique_output_references) > 10:
+                print(f"       ... and {len(unique_output_references) - 10} more")
+        
+        # Truthfulness analysis
+        if unique_input_tickets and unique_output_references:
+            input_set = set(unique_input_tickets)
+            output_set = set(unique_output_references)
+            
+            valid_references = output_set.intersection(input_set)
+            invalid_references = output_set - input_set
+            unreferenced_tickets = input_set - output_set
+            
+            print(f"\n🔍 TRUTHFULNESS ANALYSIS:")
+            print(f"   ✅ Valid AI references: {len(valid_references)} (AI mentioned real tickets)")
+            print(f"   ❌ Invalid AI references: {len(invalid_references)} (AI possibly hallucinated)")
+            print(f"   📋 Unreferenced tickets: {len(unreferenced_tickets)} (real tickets AI didn't mention)")
+            
+            if len(unique_output_references) > 0:
+                accuracy_rate = (len(valid_references) / len(unique_output_references)) * 100
+                print(f"   📊 AI Reference Accuracy: {accuracy_rate:.1f}%")
+            
+            if valid_references:
+                print(f"\n   ✓ CORRECTLY REFERENCED:")
+                valid_list = sorted(list(valid_references))
+                for i, ticket in enumerate(valid_list[:10], 1):
+                    print(f"     {i:2}. {ticket}")
+                if len(valid_list) > 10:
+                    print(f"        ... and {len(valid_list) - 10} more")
+            
+            if invalid_references:
+                print(f"\n   🚨 POSSIBLY HALLUCINATED:")
+                invalid_list = sorted(list(invalid_references))
+                for i, ticket in enumerate(invalid_list[:10], 1):
+                    print(f"     {i:2}. {ticket} ❌")
+                if len(invalid_list) > 10:
+                    print(f"        ... and {len(invalid_list) - 10} more")
+        
+        # Row-by-row breakdown
+        print(f"\n📋 ROW-BY-ROW BREAKDOWN:")
+        for result in row_results:
+            truthful = "✅" if result['has_jira_data'] else "⚠️"
+            input_count = len(result['input_tickets'])
+            output_count = len(result['output_references'])
+            
+            if result['input_tickets'] and result['output_references']:
+                input_set = set(result['input_tickets'])
+                output_set = set(result['output_references'])
+                valid = len(output_set.intersection(input_set))
+                invalid = len(output_set - input_set)
+                status = f"Valid: {valid}, Invalid: {invalid}"
+            elif result['output_references'] and not result['input_tickets']:
+                status = f"No input data to verify against"
+            elif result['input_tickets'] and not result['output_references']:
+                status = f"AI made no JIRA references"
+            else:
+                status = f"No JIRA data found"
+            
+            print(f"   {truthful} Row {result['row_index']}: Input({input_count}) → Output({output_count}) | {status}")
+        
+        # Project prefix analysis
+        if unique_input_tickets or unique_output_references:
+            all_unique_tickets = list(set(unique_input_tickets + unique_output_references))
             prefixes = {}
-            for ticket in unique_total_tickets:
+            for ticket in all_unique_tickets:
                 prefix = ticket.split('-')[0]
                 prefixes[prefix] = prefixes.get(prefix, 0) + 1
             
-            print(f"📂 Project prefixes found: {len(prefixes)}")
+            print(f"\n📂 PROJECT PREFIX ANALYSIS:")
+            print(f"   Found {len(prefixes)} different project prefixes:")
             for prefix, count in sorted(prefixes.items()):
-                print(f"   {prefix}: {count} unique tickets")
-                
-            # Show sample of all unique tickets
-            print(f"\n📋 Sample of all unique tickets found:")
-            sample_size = min(15, len(unique_total_tickets))
-            for i, ticket in enumerate(sorted(unique_total_tickets)[:sample_size], 1):
-                print(f"   {i:2}. {ticket}")
-            
-            if len(unique_total_tickets) > sample_size:
-                print(f"   ... and {len(unique_total_tickets) - sample_size} more tickets")
+                print(f"     {prefix}: {count} tickets")
+        
         else:
-            print("❌ No tickets found in any row")
+            print("\n❌ No JIRA tickets or references found in any row")
             
     except FileNotFoundError:
         print(f"❌ Dataset file not found: {csv_path}")
