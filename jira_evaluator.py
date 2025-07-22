@@ -133,6 +133,88 @@ def extract_jira_ticket_numbers(jira_raw_data: str) -> List[str]:
         return []
 
 
+def extract_jira_references_from_output(dataset_row: Dict[str, Any]) -> List[str]:
+    """
+    Extract JIRA ticket references from a dataset row's outputs_json.
+    
+    This function searches for JIRA ticket references that the AI mentions
+    in its generated report/response.
+    
+    Args:
+        dataset_row: A single row from the LangSmith dataset containing
+                    'outputs_json' field with the AI-generated response
+    
+    Returns:
+        List[str]: List of unique JIRA ticket numbers referenced in the output
+    """
+    try:
+        # Parse the outputs_json string into a Python dictionary
+        outputs_data = json.loads(dataset_row['outputs_json'])
+        
+        # Extract text content from outputs - handle different possible structures
+        output_text = ""
+        
+        # Common output structures to check:
+        if isinstance(outputs_data, dict):
+            # Check common field names for AI responses
+            possible_fields = ['content', 'response', 'answer', 'result', 'output', 'text', 'message']
+            
+            for field in possible_fields:
+                if field in outputs_data:
+                    if isinstance(outputs_data[field], str):
+                        output_text = outputs_data[field]
+                        break
+                    elif isinstance(outputs_data[field], dict):
+                        # Sometimes content is nested, like {'content': {'text': '...'}}
+                        if 'text' in outputs_data[field]:
+                            output_text = outputs_data[field]['text']
+                            break
+            
+            # If no common field found, convert entire dict to string as fallback
+            if not output_text:
+                output_text = str(outputs_data)
+                
+        elif isinstance(outputs_data, str):
+            # Sometimes outputs_json is just a plain string
+            output_text = outputs_data
+        else:
+            # Fallback: convert to string
+            output_text = str(outputs_data)
+        
+        if not output_text:
+            print("Warning: No output text found to search for JIRA references")
+            return []
+        
+        print(f"📝 Searching for JIRA references in output ({len(output_text)} characters)")
+        
+        # Use the same regex pattern as extract_jira_ticket_numbers
+        ticket_pattern = r'\b[A-Z]{2,10}-\d{1,6}\b'
+        
+        # Find all JIRA ticket references in the output
+        matches = re.findall(ticket_pattern, output_text)
+        
+        # Remove duplicates while preserving order
+        unique_references = []
+        seen = set()
+        for ticket in matches:
+            if ticket not in seen:
+                unique_references.append(ticket)
+                seen.add(ticket)
+        
+        print(f"🎫 Found {len(unique_references)} unique JIRA ticket references in output")
+        if unique_references:
+            print(f"📋 References found: {unique_references[:10]}{'...' if len(unique_references) > 10 else ''}")
+        
+        return unique_references
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Failed to parse outputs_json: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Error extracting JIRA references from output: {e}")
+        return []
+
+
 def test_jira_extraction():
     """
     Test function to demonstrate JIRA data extraction with sample data.
@@ -159,7 +241,7 @@ def test_jira_extraction():
                 '''
             }]
         }),
-        'outputs_json': '{"result": "test output"}'
+        'outputs_json': '{"result": "Based on analysis of BUG-123 and FEAT-456, we found issues. The STORY-789 was completed successfully."}'
     }
     
     print("🧪 Testing JIRA extraction function...")
@@ -174,19 +256,30 @@ def test_jira_extraction():
             print(f"📝 Preview:")
             print(jira_data[:200] + "..." if len(jira_data) > 200 else jira_data)
             
-            # Test ticket number extraction
-            print(f"\n🎫 Testing ticket number extraction...")
+            # Test ticket number extraction from input
+            print(f"\n🎫 Testing ticket number extraction from input...")
             ticket_numbers = extract_jira_ticket_numbers(jira_data)
             
             if ticket_numbers:
-                print(f"📋 Extracted {len(ticket_numbers)} ticket numbers:")
+                print(f"📋 Extracted {len(ticket_numbers)} ticket numbers from input:")
                 for i, ticket in enumerate(ticket_numbers, 1):
                     print(f"   {i}. {ticket}")
             else:
-                print("❌ No ticket numbers found")
+                print("❌ No ticket numbers found in input")
                 
         else:
-            print("❌ No JIRA data extracted")
+            print("❌ No JIRA data extracted from input")
+        
+        # Test JIRA reference extraction from output
+        print(f"\n🎯 Testing JIRA reference extraction from output...")
+        output_references = extract_jira_references_from_output(sample_row)
+        
+        if output_references:
+            print(f"📋 Found {len(output_references)} JIRA references in output:")
+            for i, ref in enumerate(output_references, 1):
+                print(f"   {i}. {ref}")
+        else:
+            print("❌ No JIRA references found in output")
             
     except Exception as e:
         print(f"❌ Error during testing: {e}")
