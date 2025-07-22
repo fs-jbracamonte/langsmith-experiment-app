@@ -8,7 +8,7 @@ Tests the extract_jira_data_from_input function with actual LangSmith dataset.
 import pandas as pd
 import os
 import glob
-from jira_evaluator import extract_jira_data_from_input, extract_jira_ticket_numbers, extract_jira_references_from_output
+from jira_evaluator import extract_jira_data_from_input, extract_jira_ticket_numbers, extract_jira_references_from_output, evaluate_jira_truthfulness
 
 
 def find_csv_files():
@@ -189,6 +189,11 @@ def test_with_real_dataset():
                 if valid_refs:
                     print(f"      ✓ Correctly referenced: {list(valid_refs)[:3]}{'...' if len(valid_refs) > 3 else ''}")
             
+            # Get truthfulness score using the evaluator function
+            print(f"\n🎯 TRUTHFULNESS EVALUATION:")
+            truthfulness_score = evaluate_jira_truthfulness(current_row)
+            row_result['truthfulness_score'] = truthfulness_score
+            
             if input_tickets:
                 successful_extractions += 1
         
@@ -255,12 +260,34 @@ def test_with_real_dataset():
                 if len(invalid_list) > 10:
                     print(f"        ... and {len(invalid_list) - 10} more")
         
+        # Calculate overall truthfulness rate
+        truthfulness_scores = [result.get('truthfulness_score', 0) for result in row_results]
+        truthful_rows = sum(truthfulness_scores)
+        total_evaluated_rows = len([r for r in row_results if 'truthfulness_score' in r])
+        
+        if total_evaluated_rows > 0:
+            truthfulness_rate = (truthful_rows / total_evaluated_rows) * 100
+            print(f"\n🏆 OVERALL TRUTHFULNESS SCORE:")
+            print(f"   📊 Truthful rows: {truthful_rows}/{total_evaluated_rows}")
+            print(f"   📈 Truthfulness rate: {truthfulness_rate:.1f}%")
+        
         # Row-by-row breakdown
         print(f"\n📋 ROW-BY-ROW BREAKDOWN:")
         for result in row_results:
-            truthful = "✅" if result['has_jira_data'] else "⚠️"
             input_count = len(result['input_tickets'])
             output_count = len(result['output_references'])
+            score = result.get('truthfulness_score', '?')
+            
+            # Determine icon based on truthfulness score
+            if score == 1:
+                icon = "✅"
+                score_text = "TRUTHFUL"
+            elif score == 0:
+                icon = "❌"
+                score_text = "UNTRUTHFUL"
+            else:
+                icon = "⚠️"
+                score_text = "NOT EVALUATED"
             
             if result['input_tickets'] and result['output_references']:
                 input_set = set(result['input_tickets'])
@@ -269,13 +296,13 @@ def test_with_real_dataset():
                 invalid = len(output_set - input_set)
                 status = f"Valid: {valid}, Invalid: {invalid}"
             elif result['output_references'] and not result['input_tickets']:
-                status = f"No input data to verify against"
+                status = f"No input data to verify"
             elif result['input_tickets'] and not result['output_references']:
-                status = f"AI made no JIRA references"
+                status = f"AI made no references"
             else:
                 status = f"No JIRA data found"
             
-            print(f"   {truthful} Row {result['row_index']}: Input({input_count}) → Output({output_count}) | {status}")
+            print(f"   {icon} Row {result['row_index']}: Input({input_count}) → Output({output_count}) | {status} | Score: {score} ({score_text})")
         
         # Project prefix analysis
         if unique_input_tickets or unique_output_references:
@@ -344,7 +371,8 @@ def main():
     try:
         test_with_real_dataset()
         print(f"\n✨ Test completed successfully!")
-        print("💡 Next step: Build the output JIRA reference extraction function")
+        print("🎉 Your JIRA truthfulness evaluator is now complete and ready for LangSmith!")
+        print("💡 Next step: Integrate as a custom evaluator in your LangSmith workflow")
         
     except KeyboardInterrupt:
         print(f"\n👋 Test interrupted by user")
