@@ -85,7 +85,7 @@ def perform_eval(run, example):
         example: Example object containing input data with JIRA tickets
     
     Returns:
-        dict: {"feedback_key": score} where score is 1 (truthful) or 0 (untruthful)
+        dict: {"truthfulness": score} where score is 1 (truthful) or 0 (untruthful)
     """
     try:
         # Extract JIRA tickets from input data (ground truth)
@@ -113,11 +113,11 @@ def perform_eval(run, example):
         # Handle edge cases
         if not output_references:
             # AI made no JIRA references - this is considered truthful
-            return {"feedback_key": 1}
+            return {"truthfulness": 1}
         
         if not input_tickets:
             # No input JIRA data to verify against, but AI made references
-            return {"feedback_key": 0}
+            return {"truthfulness": 0}
         
         # Compare output references against input tickets
         input_set = set(input_tickets)
@@ -128,8 +128,8 @@ def perform_eval(run, example):
         
         # Return 1 if all references are valid, 0 if any are invalid
         score = 1 if len(invalid_references) == 0 else 0
-        return {"feedback_key": score}
+        return {"truthfulness": score}
         
     except Exception as e:
         # In case of error, default to untruthful to be conservative
-        return {"feedback_key": 0} 
+        return {"truthfulness": 0} 
