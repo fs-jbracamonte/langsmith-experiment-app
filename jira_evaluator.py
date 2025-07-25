@@ -8,22 +8,26 @@ from LangSmith dataset rows to evaluate AI report truthfulness.
 
 import json
 import re
+import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, List
 
 
-def extract_jira_data_from_input(dataset_row: Dict[str, Any]) -> Optional[str]:
+def extract_jira_data_from_input(dataset_row: Dict[str, Any]) -> tuple[Optional[str], bool]:
     """
     Extract raw JIRA data from a dataset row's inputs_json.
     
     This function looks for JIRA ticket data between the delimiters:
     <<START OF JIRA TICKETS>> and <<END OF JIRA TICKETS>>
+    If delimiters are not found, returns the entire content.
     
     Args:
         dataset_row: A single row from the LangSmith dataset containing
                     'inputs_json' field with the raw JSON string
     
     Returns:
-        str: Raw JIRA text between delimiters, or None if not found
+        tuple: (raw_data, has_delimiters)
+            - raw_data: Raw JIRA text between delimiters or entire content
+            - has_delimiters: True if delimiters were found, False otherwise
         
     Raises:
         ValueError: If inputs_json is malformed or missing required fields
@@ -51,31 +55,32 @@ def extract_jira_data_from_input(dataset_row: Dict[str, Any]) -> Optional[str]:
         end_delimiter = "<<END OF JIRA TICKETS>>"
         
         start_index = content.find(start_delimiter)
-        if start_index == -1:
-            print("Warning: START OF JIRA TICKETS delimiter not found")
-            return None
-        
         end_index = content.find(end_delimiter)
-        if end_index == -1:
-            print("Warning: END OF JIRA TICKETS delimiter not found")
-            return None
         
-        # Extract the raw JIRA data between delimiters
-        # Move start_index past the delimiter
-        start_index += len(start_delimiter)
+        # Check if both delimiters are present
+        if start_index != -1 and end_index != -1:
+            # Extract the raw JIRA data between delimiters
+            # Move start_index past the delimiter
+            start_index += len(start_delimiter)
+            
+            if start_index >= end_index:
+                print("Warning: Invalid delimiter positions - start after end")
+                return None, False
+            
+            jira_raw_data = content[start_index:end_index].strip()
+            
+            if not jira_raw_data:
+                print("Warning: No JIRA data found between delimiters")
+                return None, False
+            
+            print(f"✅ Successfully extracted JIRA data from delimiters ({len(jira_raw_data)} characters)")
+            return jira_raw_data, True
         
-        if start_index >= end_index:
-            print("Warning: Invalid delimiter positions - start after end")
-            return None
-        
-        jira_raw_data = content[start_index:end_index].strip()
-        
-        if not jira_raw_data:
-            print("Warning: No JIRA data found between delimiters")
-            return None
-        
-        print(f"✅ Successfully extracted JIRA data ({len(jira_raw_data)} characters)")
-        return jira_raw_data
+        else:
+            # Delimiters not found - use entire content as fallback
+            print("ℹ️ JIRA delimiters not found - searching entire input content for JIRA tickets")
+            print(f"✅ Using entire input content ({len(content)} characters)")
+            return content.strip(), False
         
     except json.JSONDecodeError as e:
         raise ValueError(f"Failed to parse inputs_json: {e}")
@@ -85,18 +90,27 @@ def extract_jira_data_from_input(dataset_row: Dict[str, Any]) -> Optional[str]:
         raise ValueError(f"Unexpected error extracting JIRA data: {e}")
 
 
-def extract_jira_ticket_numbers(jira_raw_data: str) -> List[str]:
+def extract_jira_ticket_numbers(jira_raw_data: str, has_delimiters: bool = True) -> List[str]:
     """
     Extract JIRA ticket numbers from raw JIRA data.
     
-    This function looks for ticket number patterns like:
-    - BUG-123
-    - FEAT-456  
-    - PROJ-789
-    - ABC-1234
+    This function handles both XML formatted JIRA data (RSS format) and plain text.
+    If delimiters were found, it tries XML parsing first, then falls back to regex.
+    If no delimiters were found, it skips XML parsing and goes directly to regex.
+    
+    Expected XML structure (when has_delimiters=True):
+    <rss version="0.92">
+      <channel>
+        <item>
+          <title>[CSMVP-643] Issue Description</title>
+          ...
+        </item>
+      </channel>
+    </rss>
     
     Args:
-        jira_raw_data: Raw JIRA text containing ticket information
+        jira_raw_data: Raw JIRA data containing ticket information
+        has_delimiters: Whether delimiters were found in the input (True = try XML first, False = regex only)
     
     Returns:
         List[str]: List of unique JIRA ticket numbers found
@@ -106,12 +120,49 @@ def extract_jira_ticket_numbers(jira_raw_data: str) -> List[str]:
         return []
     
     try:
-        # Regex pattern to match JIRA ticket numbers
-        # Matches: [2-10 uppercase letters]-[1-6 digits]
-        # Examples: BUG-123, FEATURE-4567, PROJ-1, ABC-999999
-        ticket_pattern = r'\b[A-Z]{2,10}-\d{1,6}\b'
+        # If delimiters were found, try XML parsing first
+        if has_delimiters:
+            try:
+                print("🔍 Attempting XML parsing (delimiters found)...")
+                # Parse the XML data
+                root = ET.fromstring(jira_raw_data)
+                
+                # Find all <item> elements (JIRA tickets)
+                items = root.findall('.//item')
+                
+                unique_tickets = []
+                seen = set()
+                
+                for item in items:
+                    # Get the title element
+                    title_element = item.find('title')
+                    if title_element is not None and title_element.text:
+                        title_text = title_element.text
+                        
+                        # Extract ticket number from title
+                        # Pattern: [TICKET-123] Description
+                        ticket_match = re.search(r'\[([A-Z]{2,10}-\d{1,6})\]', title_text)
+                        if ticket_match:
+                            ticket_number = ticket_match.group(1)
+                            if ticket_number not in seen:
+                                unique_tickets.append(ticket_number)
+                                seen.add(ticket_number)
+                
+                print(f"✅ Found {len(unique_tickets)} unique JIRA ticket numbers from XML")
+                if unique_tickets:
+                    print(f"📋 Sample tickets: {unique_tickets[:5]}{'...' if len(unique_tickets) > 5 else ''}")
+                
+                return unique_tickets
+                
+            except ET.ParseError as xml_error:
+                print(f"⚠️ XML parsing failed: {xml_error}")
+                print("🔄 Falling back to regex pattern matching...")
+        else:
+            print("🔍 No delimiters found - using regex pattern matching directly...")
         
-        # Find all matches
+        # Use regex pattern matching for plain text format
+        # (either as fallback from failed XML parsing, or primary method when no delimiters)
+        ticket_pattern = r'\b[A-Z]{2,10}-\d{1,6}\b'
         matches = re.findall(ticket_pattern, jira_raw_data)
         
         # Remove duplicates while preserving order
@@ -122,7 +173,8 @@ def extract_jira_ticket_numbers(jira_raw_data: str) -> List[str]:
                 unique_tickets.append(ticket)
                 seen.add(ticket)
         
-        print(f"✅ Found {len(unique_tickets)} unique JIRA ticket numbers")
+        method = "regex fallback" if has_delimiters else "regex (no delimiters)"
+        print(f"✅ Found {len(unique_tickets)} unique JIRA ticket numbers from {method}")
         if unique_tickets:
             print(f"📋 Sample tickets: {unique_tickets[:5]}{'...' if len(unique_tickets) > 5 else ''}")
         
@@ -234,9 +286,9 @@ def evaluate_jira_truthfulness(dataset_row: Dict[str, Any]) -> int:
         print(f"🔍 Evaluating JIRA truthfulness for row: {dataset_row.get('id', 'unknown')}")
         
         # Step 1: Extract JIRA tickets from input data (ground truth)
-        jira_raw_data = extract_jira_data_from_input(dataset_row)
+        jira_raw_data, has_delimiters = extract_jira_data_from_input(dataset_row)
         if jira_raw_data:
-            input_tickets = extract_jira_ticket_numbers(jira_raw_data)
+            input_tickets = extract_jira_ticket_numbers(jira_raw_data, has_delimiters)
         else:
             input_tickets = []
         
@@ -286,10 +338,10 @@ def evaluate_jira_truthfulness(dataset_row: Dict[str, Any]) -> int:
 
 def test_jira_extraction():
     """
-    Test function to demonstrate JIRA data extraction with sample data.
+    Test function to demonstrate JIRA data extraction with sample XML data.
     This helps verify the function works before integrating with real datasets.
     """
-    # Sample dataset row structure (simplified for testing)
+    # Sample dataset row structure with XML format (simplified for testing)
     sample_row = {
         'id': 'test-123',
         'inputs_json': json.dumps({
@@ -300,9 +352,32 @@ def test_jira_extraction():
                 
                 <<START OF JIRA TICKETS>>
                 
-                Summary | Issue key | Issue id | Issue Type | Status | Project key
-                Fix login bug | BUG-123 | 12345 | Bug | Done | PROJ
-                Add new feature | FEAT-456 | 67890 | Story | In Progress | PROJ
+                <rss version="0.92">
+                <channel>
+                <title>Jira</title>
+                <item>
+                <title>[CSMVP-643] Irrelevant "Not Matched" Labels Displayed in ICP Tagging Explanation</title>
+                <link>https://example.atlassian.net/browse/CSMVP-643</link>
+                <key id="12336">CSMVP-643</key>
+                <type id="10006">Bug</type>
+                <status id="10012">Backlog</status>
+                </item>
+                <item>
+                <title>[CSMVP-601] Counts don't Match</title>
+                <link>https://example.atlassian.net/browse/CSMVP-601</link>
+                <key id="12301">CSMVP-601</key>
+                <type id="10006">Bug</type>
+                <status id="10001">Done</status>
+                </item>
+                <item>
+                <title>[CSMVP-636] Backend/Data Engagement Timeline</title>
+                <link>https://example.atlassian.net/browse/CSMVP-636</link>
+                <key id="12336">CSMVP-636</key>
+                <type id="10001">Story</type>
+                <status id="10002">In Progress</status>
+                </item>
+                </channel>
+                </rss>
                 
                 <<END OF JIRA TICKETS>>
                 
@@ -310,24 +385,45 @@ def test_jira_extraction():
                 '''
             }]
         }),
-        'outputs_json': '{"result": "Based on analysis of BUG-123 and FEAT-456, we found issues. The STORY-789 was completed successfully."}'
+        'outputs_json': '{"result": "Based on analysis of CSMVP-643 and CSMVP-601, we found issues. The CSMVP-999 was completed successfully."}'
+    }
+    
+    # Sample dataset row structure WITHOUT delimiters (for testing no-delimiter scenario)
+    sample_row_no_delimiters = {
+        'id': 'test-no-delimiters',
+        'inputs_json': json.dumps({
+            'messages': [{
+                'role': 'system',
+                'content': '''
+                Here are some JIRA tickets mentioned in various formats:
+                - BUG-123 is a critical issue
+                - FEAT-456 was implemented last week
+                - The team is working on PROJ-789
+                - Task CSMVP-101 needs review
+                
+                Some additional context about these tickets...
+                '''
+            }]
+        }),
+        'outputs_json': '{"result": "Analysis shows BUG-123 and FEAT-456 are resolved. NONEXISTENT-999 was also checked."}'
     }
     
     print("🧪 Testing JIRA extraction function...")
-    print("-" * 50)
+    print("=" * 70)
     
     try:
-        jira_data = extract_jira_data_from_input(sample_row)
+        jira_data, has_delimiters = extract_jira_data_from_input(sample_row)
         
         if jira_data:
             print(f"📊 Extracted JIRA data:")
             print(f"📏 Length: {len(jira_data)} characters")
+            print(f"🔖 Has delimiters: {has_delimiters}")
             print(f"📝 Preview:")
             print(jira_data[:200] + "..." if len(jira_data) > 200 else jira_data)
             
             # Test ticket number extraction from input
             print(f"\n🎫 Testing ticket number extraction from input...")
-            ticket_numbers = extract_jira_ticket_numbers(jira_data)
+            ticket_numbers = extract_jira_ticket_numbers(jira_data, has_delimiters)
             
             if ticket_numbers:
                 print(f"📋 Extracted {len(ticket_numbers)} ticket numbers from input:")
@@ -349,6 +445,43 @@ def test_jira_extraction():
                 print(f"   {i}. {ref}")
         else:
             print("❌ No JIRA references found in output")
+        
+        # Test the full truthfulness evaluation
+        print(f"\n🔍 Testing full truthfulness evaluation...")
+        score = evaluate_jira_truthfulness(sample_row)
+        print(f"📊 Final truthfulness score: {score}")
+        
+        # Test scenario without delimiters
+        print(f"\n" + "=" * 70)
+        print("🧪 Testing scenario WITHOUT delimiters...")
+        print("-" * 50)
+        
+        jira_data_no_delim, has_delimiters_no_delim = extract_jira_data_from_input(sample_row_no_delimiters)
+        
+        if jira_data_no_delim:
+            print(f"📊 Extracted JIRA data (no delimiters):")
+            print(f"📏 Length: {len(jira_data_no_delim)} characters")
+            print(f"🔖 Has delimiters: {has_delimiters_no_delim}")
+            print(f"📝 Preview:")
+            print(jira_data_no_delim[:150] + "..." if len(jira_data_no_delim) > 150 else jira_data_no_delim)
+            
+            # Test ticket number extraction from input (should skip XML parsing)
+            print(f"\n🎫 Testing ticket number extraction (no delimiters)...")
+            ticket_numbers_no_delim = extract_jira_ticket_numbers(jira_data_no_delim, has_delimiters_no_delim)
+            
+            if ticket_numbers_no_delim:
+                print(f"📋 Extracted {len(ticket_numbers_no_delim)} ticket numbers:")
+                for i, ticket in enumerate(ticket_numbers_no_delim, 1):
+                    print(f"   {i}. {ticket}")
+            else:
+                print("❌ No ticket numbers found")
+            
+            # Test full evaluation for no-delimiters scenario
+            print(f"\n🔍 Testing full truthfulness evaluation (no delimiters)...")
+            score_no_delim = evaluate_jira_truthfulness(sample_row_no_delimiters)
+            print(f"📊 Final truthfulness score (no delimiters): {score_no_delim}")
+        else:
+            print("❌ No JIRA data extracted from input (no delimiters)")
             
     except Exception as e:
         print(f"❌ Error during testing: {e}")
