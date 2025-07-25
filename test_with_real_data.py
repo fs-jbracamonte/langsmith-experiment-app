@@ -79,22 +79,30 @@ def test_with_real_dataset():
         # Ask user how many rows to test
         while True:
             try:
-                max_rows = min(len(df), 5)  # Limit to 5 rows max
-                rows_input = input(f"\nHow many rows to test? (1-{max_rows}, or 'all' for {max_rows}): ").strip()
+                max_individual_rows = min(len(df), 5)  # Limit for individual selection
+                total_rows = len(df)
+                
+                print(f"\n📊 Dataset contains {total_rows} total rows")
+                rows_input = input(f"How many rows to test? (1-{max_individual_rows}, or 'all' for ALL {total_rows} rows): ").strip()
                 
                 if rows_input.lower() == 'all':
-                    num_rows = max_rows
+                    num_rows = total_rows
+                    process_all = True
+                    print(f"✅ Will process ALL {total_rows} rows in batches of 5 for better readability")
                     break
                 else:
                     num_rows = int(rows_input)
-                    if 1 <= num_rows <= max_rows:
+                    if 1 <= num_rows <= max_individual_rows:
+                        process_all = False
                         break
                     else:
-                        print(f"❌ Please enter a number between 1 and {max_rows}")
+                        print(f"❌ Please enter a number between 1 and {max_individual_rows}")
             except ValueError:
                 print("❌ Please enter a valid number or 'all'")
         
         print(f"\n🎯 Testing with {num_rows} row{'s' if num_rows > 1 else ''}...")
+        if process_all and num_rows > 5:
+            print(f"📦 Processing in batches for better performance and readability")
         print("=" * 60)
         
         # Test with selected number of rows
@@ -102,8 +110,21 @@ def test_with_real_dataset():
         total_output_references = []
         successful_extractions = 0
         row_results = []  # Store results for each row
+        delimiter_stats = {'with_delimiters': 0, 'without_delimiters': 0}  # Track delimiter usage
+        
+        # Process rows (with batching for large datasets)
+        batch_size = 5
         
         for row_index in range(num_rows):
+            # Show batch progress for large datasets
+            if process_all and num_rows > 5:
+                current_batch = (row_index // batch_size) + 1
+                total_batches = (num_rows + batch_size - 1) // batch_size
+                row_in_batch = (row_index % batch_size) + 1
+                
+                if row_index % batch_size == 0:  # Start of new batch
+                    print(f"\n🗂️ BATCH {current_batch}/{total_batches} (Rows {row_index + 1}-{min(row_index + batch_size, num_rows)})")
+                    print("=" * 50)
             print(f"\n📄 ROW {row_index + 1}/{num_rows}")
             print("-" * 40)
             
@@ -118,31 +139,52 @@ def test_with_real_dataset():
             
             # Extract JIRA data
             print(f"\n⚡ Extracting JIRA data...")
-            jira_data = extract_jira_data_from_input(current_row)
+            jira_data, has_delimiters = extract_jira_data_from_input(current_row)
             
             if jira_data:
-                successful_extractions += 1
                 print(f"✅ SUCCESS! JIRA data extracted")
                 print(f"📏 JIRA data length: {len(jira_data)} characters")
+                print(f"🔖 Has delimiters: {has_delimiters}")
                 
-                # Only show preview for first row to avoid too much output
+                # Track delimiter statistics
+                if has_delimiters:
+                    delimiter_stats['with_delimiters'] += 1
+                    print(f"🔍 Processing method: XML parsing (then regex fallback if needed)")
+                else:
+                    delimiter_stats['without_delimiters'] += 1
+                    print(f"🔍 Processing method: Direct regex pattern matching")
+                
+                                # Only show preview for first row (and reduce detail for large datasets)
                 if row_index == 0:
                     print(f"\n📄 JIRA Data Preview (first 300 characters):")
                     print("-" * 50)
                     preview = jira_data[:300] + "\n..." if len(jira_data) > 300 else jira_data
                     print(preview)
+                elif process_all and num_rows > 5 and row_index % batch_size == 0:
+                    # Show brief preview at start of each batch for large datasets
+                    preview = jira_data[:100] + "..." if len(jira_data) > 100 else jira_data
+                    print(f"   📄 Sample data: {preview[:100]}{'...' if len(preview) > 100 else ''}")
                 
                 # Test ticket number extraction from input
                 print(f"\n🎫 Extracting JIRA tickets from INPUT...")
-                input_tickets = extract_jira_ticket_numbers(jira_data)
+                input_tickets = extract_jira_ticket_numbers(jira_data, has_delimiters)
                 
             else:
                 input_tickets = []
                 print("❌ No JIRA data found in input")
             
+            # Count successful extraction if tickets are found
+            if input_tickets:
+                successful_extractions += 1
+            
             # Test JIRA reference extraction from output
             print(f"\n🎯 Extracting JIRA references from OUTPUT...")
             output_references = extract_jira_references_from_output(current_row)
+            
+            # Get truthfulness score using the evaluator function
+            if not (process_all and num_rows > 10):  # Reduce verbose output for large datasets
+                print(f"\n🎯 TRUTHFULNESS EVALUATION:")
+            truthfulness_score = evaluate_jira_truthfulness(current_row)
             
             # Store results for this row
             row_result = {
@@ -150,7 +192,9 @@ def test_with_real_dataset():
                 'row_id': current_row['id'],
                 'input_tickets': input_tickets,
                 'output_references': output_references,
-                'has_jira_data': len(input_tickets) > 0
+                'has_jira_data': len(input_tickets) > 0,
+                'has_delimiters': has_delimiters if jira_data else None,
+                'truthfulness_score': truthfulness_score
             }
             row_results.append(row_result)
             
@@ -158,44 +202,59 @@ def test_with_real_dataset():
             total_input_tickets.extend(input_tickets)
             total_output_references.extend(output_references)
             
-            # Show comparison for this row
-            print(f"\n📊 ROW {row_index + 1} COMPARISON:")
-            print(f"   📥 Input tickets found: {len(input_tickets)}")
-            if input_tickets:
-                sample_size = min(5, len(input_tickets))
-                print(f"      Sample: {input_tickets[:sample_size]}")
-                if len(input_tickets) > sample_size:
-                    print(f"      ... and {len(input_tickets) - sample_size} more")
-            
-            print(f"   📤 Output references found: {len(output_references)}")
-            if output_references:
-                sample_size = min(5, len(output_references))
-                print(f"      Sample: {output_references[:sample_size]}")
-                if len(output_references) > sample_size:
-                    print(f"      ... and {len(output_references) - sample_size} more")
-            
-            # Quick truthfulness check for this row
-            if input_tickets and output_references:
-                input_set = set(input_tickets)
-                output_set = set(output_references)
-                valid_refs = output_set.intersection(input_set)
-                invalid_refs = output_set - input_set
+            # Show comparison for this row (reduce verbosity for large datasets)
+            if not (process_all and num_rows > 10):
+                print(f"\n📊 ROW {row_index + 1} COMPARISON:")
+                print(f"   📥 Input tickets found: {len(input_tickets)}")
+                if input_tickets:
+                    sample_size = min(5, len(input_tickets))
+                    print(f"      Sample: {input_tickets[:sample_size]}")
+                    if len(input_tickets) > sample_size:
+                        print(f"      ... and {len(input_tickets) - sample_size} more")
                 
-                print(f"   ✅ Valid references: {len(valid_refs)} (AI mentioned real tickets)")
-                print(f"   ❌ Invalid references: {len(invalid_refs)} (AI mentioned non-existent tickets)")
+                print(f"   📤 Output references found: {len(output_references)}")
+                if output_references:
+                    sample_size = min(5, len(output_references))
+                    print(f"      Sample: {output_references[:sample_size]}")
+                    if len(output_references) > sample_size:
+                        print(f"      ... and {len(output_references) - sample_size} more")
                 
-                if invalid_refs:
-                    print(f"      🚨 Possibly hallucinated: {list(invalid_refs)[:3]}{'...' if len(invalid_refs) > 3 else ''}")
-                if valid_refs:
-                    print(f"      ✓ Correctly referenced: {list(valid_refs)[:3]}{'...' if len(valid_refs) > 3 else ''}")
+                # Quick truthfulness check for this row
+                if input_tickets and output_references:
+                    input_set = set(input_tickets)
+                    output_set = set(output_references)
+                    valid_refs = output_set.intersection(input_set)
+                    invalid_refs = output_set - input_set
+                    
+                    print(f"   ✅ Valid references: {len(valid_refs)} (AI mentioned real tickets)")
+                    print(f"   ❌ Invalid references: {len(invalid_refs)} (AI mentioned non-existent tickets)")
+                    
+                    if invalid_refs:
+                        print(f"      🚨 Possibly hallucinated: {list(invalid_refs)[:3]}{'...' if len(invalid_refs) > 3 else ''}")
+                    if valid_refs:
+                        print(f"      ✓ Correctly referenced: {list(valid_refs)[:3]}{'...' if len(valid_refs) > 3 else ''}")
+            else:
+                # Condensed output for large datasets
+                status_icon = "✅" if truthfulness_score == 1 else "❌" if truthfulness_score == 0 else "⚠️"
+                print(f"   {status_icon} Row {row_index + 1}: Input({len(input_tickets)}) → Output({len(output_references)}) | Score: {truthfulness_score}")
             
-            # Get truthfulness score using the evaluator function
-            print(f"\n🎯 TRUTHFULNESS EVALUATION:")
-            truthfulness_score = evaluate_jira_truthfulness(current_row)
-            row_result['truthfulness_score'] = truthfulness_score
-            
-            if input_tickets:
-                successful_extractions += 1
+            # Add batch summary for large datasets
+            if process_all and num_rows > 5 and (row_index + 1) % batch_size == 0:
+                batch_end = min(row_index + 1, num_rows)
+                batch_start = batch_end - batch_size + 1
+                batch_successful = len([r for r in row_results[batch_start-1:batch_end] if r['has_jira_data']])
+                batch_truthful = sum([r.get('truthfulness_score', 0) for r in row_results[batch_start-1:batch_end]])
+                
+                print(f"\n📊 BATCH {current_batch} SUMMARY:")
+                print(f"   ✅ Rows with JIRA data: {batch_successful}/{batch_size}")
+                print(f"   🎯 Truthful rows: {batch_truthful}/{batch_size}")
+                print(f"   📈 Progress: {row_index + 1}/{num_rows} rows ({((row_index + 1)/num_rows)*100:.1f}%)")
+        
+        # Final completion message for large datasets
+        if process_all and num_rows > 5:
+            print(f"\n🎉 PROCESSING COMPLETE!")
+            print(f"✅ Successfully processed all {num_rows} rows")
+            print("=" * 60)
         
         # Show detailed overall summary
         print(f"\n🎯 DETAILED ANALYSIS SUMMARY")
@@ -203,6 +262,15 @@ def test_with_real_dataset():
         print(f"📊 Rows processed: {num_rows}")
         print(f"✅ Rows with JIRA data: {successful_extractions}")
         print(f"📈 JIRA data success rate: {(successful_extractions/num_rows)*100:.1f}%")
+        
+        # Show delimiter statistics
+        print(f"\n🔍 DELIMITER ANALYSIS:")
+        print(f"   🔖 Rows with delimiters (XML format): {delimiter_stats['with_delimiters']}")
+        print(f"   📝 Rows without delimiters (plain text): {delimiter_stats['without_delimiters']}")
+        
+        if successful_extractions > 0:
+            delim_rate = (delimiter_stats['with_delimiters'] / successful_extractions) * 100
+            print(f"   📊 Delimiter presence rate: {delim_rate:.1f}%")
         
         # Calculate unique tickets
         unique_input_tickets = list(set(total_input_tickets)) if total_input_tickets else []
@@ -277,6 +345,7 @@ def test_with_real_dataset():
             input_count = len(result['input_tickets'])
             output_count = len(result['output_references'])
             score = result.get('truthfulness_score', '?')
+            has_delimiters = result.get('has_delimiters')
             
             # Determine icon based on truthfulness score
             if score == 1:
@@ -288,6 +357,14 @@ def test_with_real_dataset():
             else:
                 icon = "⚠️"
                 score_text = "NOT EVALUATED"
+            
+            # Determine delimiter status
+            if has_delimiters is True:
+                delim_text = "🔖 XML"
+            elif has_delimiters is False:
+                delim_text = "📝 Text"
+            else:
+                delim_text = "❓ N/A"
             
             if result['input_tickets'] and result['output_references']:
                 input_set = set(result['input_tickets'])
@@ -302,7 +379,7 @@ def test_with_real_dataset():
             else:
                 status = f"No JIRA data found"
             
-            print(f"   {icon} Row {result['row_index']}: Input({input_count}) → Output({output_count}) | {status} | Score: {score} ({score_text})")
+            print(f"   {icon} Row {result['row_index']}: {delim_text} | Input({input_count}) → Output({output_count}) | {status} | Score: {score} ({score_text})")
         
         # Project prefix analysis
         if unique_input_tickets or unique_output_references:
