@@ -1,29 +1,41 @@
-# LangSmith Dataset Viewer
+# JIRA Truthfulness Evaluator for LangSmith
 
-A Python script that connects to LangSmith, pulls datasets locally, and displays them in a readable format. This tool is perfect for exploring and analyzing your LangSmith datasets programmatically.
+A comprehensive evaluation system that detects AI hallucinations by verifying whether AI-generated reports contain only truthful JIRA ticket references. This tool compares JIRA tickets mentioned in AI outputs against actual tickets available in the input data, supporting both XML (RSS) and plain text formats.
 
 ## Features
 
-- 🔍 **List available datasets** - Browse all datasets in your LangSmith account
-- 📥 **Pull datasets locally** - Download dataset examples with configurable limits
-- 📊 **Display dataset contents** - View examples in a formatted, readable way
-- 💾 **Export to CSV** - Save datasets locally in organized folders for further analysis
-- 🛡️ **Error handling** - Robust error handling with helpful messages
-- 🎨 **Beautiful output** - Clean, emoji-enhanced console output
+- 🔍 **XML & Plain Text Support** - Handles both RSS XML format and plain text JIRA data
+- 🎯 **Truthfulness Detection** - Identifies when AI models reference non-existent JIRA tickets
+- 📊 **Comprehensive Evaluation** - Provides both simple binary scores and detailed analytics
+- 🔄 **Automatic Fallback** - Gracefully handles format changes with XML-to-regex fallback
+- 📈 **Batch Processing** - Test with large datasets using efficient batch processing
+- 🛡️ **Production Ready** - Robust error handling suitable for LangSmith deployment
+- 🎨 **Detailed Analytics** - Rich metrics including accuracy rates, format detection, and more
 
-## What is LangSmith?
+## What is JIRA Truthfulness Evaluation?
 
-[LangSmith](https://smith.langchain.com/) is a platform by LangChain for debugging, testing, evaluating, and monitoring LLM applications. It provides:
-- Dataset management for training and evaluation
-- Experiment tracking and comparison
-- Production monitoring and analytics
-- Collaborative debugging tools
+This system addresses a critical problem in AI applications: **AI hallucination of JIRA tickets**. When AI models generate reports or summaries about software projects, they sometimes reference JIRA tickets that don't actually exist, leading to confusion and incorrect information.
+
+Our evaluator:
+- **Compares AI output** against ground truth JIRA ticket data
+- **Detects hallucinations** when AI references non-existent tickets
+- **Provides confidence scores** for AI-generated content
+- **Supports various formats** including XML (RSS) and plain text
+
+## LangSmith Integration
+
+[LangSmith](https://smith.langchain.com/) is a platform by LangChain for debugging, testing, evaluating, and monitoring LLM applications. This evaluator integrates seamlessly with LangSmith as a custom evaluator, providing:
+- Real-time truthfulness scoring during AI model evaluation
+- Detailed metrics for monitoring AI hallucination rates
+- Batch evaluation capabilities for large datasets
+- Production-ready deployment for continuous monitoring
 
 ## Prerequisites
 
 - Python 3.7 or higher
-- A LangSmith account and API key
-- Internet connection
+- Basic understanding of JIRA ticket formats
+- Dataset with JIRA ticket data (XML or plain text format)
+- For LangSmith deployment: LangSmith account and API key
 
 ## Installation
 
@@ -52,242 +64,388 @@ A Python script that connects to LangSmith, pulls datasets locally, and displays
 
    > **Important**: Make sure your virtual environment is activated before installing dependencies!
 
-4. **Get your LangSmith API key:**
-   - Go to [https://smith.langchain.com/](https://smith.langchain.com/)
-   - Sign in to your account
-   - Navigate to Settings → API Keys
-   - Create a new API key or copy an existing one
+## File Structure
 
-5. **Set up your API key** (choose one method):
+The repository contains several key components:
 
-   **Method A: .env File (Recommended)**
-   Create a `.env` file in your project directory:
-   ```bash
-   LANGSMITH_API_KEY=your_api_key_here
-   ```
-
-   **Method B: Environment Variable**
-   ```bash
-   # On Windows (PowerShell)
-   $env:LANGSMITH_API_KEY="your_api_key_here"
-   
-   # On Windows (Command Prompt)
-   set LANGSMITH_API_KEY=your_api_key_here
-   
-   # On Windows (Git Bash)
-   export LANGSMITH_API_KEY=your_api_key_here
-   ```
-
-   **Method C: Direct Parameter**
-   Modify the script to pass your API key directly:
-   ```python
-   viewer = LangSmithDatasetViewer(api_key="your_api_key_here")
-   ```
+- **`jira_evaluator.py`** - Development/testing version with verbose output
+- **`jira_evaluator_final.py`** - Production-ready version for LangSmith deployment
+- **`test_with_real_data.py`** - Tool for testing with actual CSV datasets
+- **`datasets/`** - Directory containing your JIRA dataset files
+- **`requirements.txt`** - Python dependencies
 
 ## Usage
 
-### Basic Usage
+### Testing with Development Version
 
-Run the script to interactively select and pull datasets:
+Use `jira_evaluator.py` for development and testing:
 
 ```bash
-python langsmith_dataset_viewer.py
+# Test the built-in examples
+python jira_evaluator.py
+
+# This will run the test_jira_extraction() function which includes:
+# - XML format parsing test
+# - Plain text (no delimiters) test  
+# - Truthfulness evaluation examples
+```
+
+### Testing with Real Data
+
+Use `test_with_real_data.py` to test with your actual datasets:
+
+```bash
+python test_with_real_data.py
 ```
 
 The script will:
-1. List all available datasets with numbers
-2. Prompt you to select which dataset to pull
-3. Ask how many examples you want (or 'all' for everything)
-4. Display the results and export to CSV
+1. **Find CSV files** in the `datasets/` directory
+2. **Prompt for selection** if multiple files exist
+3. **Ask how many rows** to process (or 'all' for complete dataset)
+4. **Process in batches** for large datasets (batches of 5)
+5. **Provide detailed analysis** including:
+   - Delimiter detection (XML vs plain text)
+   - JIRA ticket extraction results
+   - Truthfulness evaluation scores
+   - Comprehensive statistics
 
-### Advanced Usage
+### LangSmith Deployment
 
-You can also use the script as a module in your own code:
+For production use in LangSmith, use `jira_evaluator_final.py`:
 
 ```python
-from langsmith_dataset_viewer import LangSmithDatasetViewer
+from jira_evaluator_final import perform_eval, perform_detailed_eval
 
-# Initialize the viewer
-viewer = LangSmithDatasetViewer()
+# Simple binary evaluation (for basic scoring)
+def my_evaluator(run, example):
+    return perform_eval(run, example)
+    # Returns: {"truthfulness": 1 or 0}
 
-# List all available datasets
-datasets = viewer.list_datasets(limit=20)
-print(f"Found {len(datasets)} datasets")
-
-# Pull a specific dataset
-examples = viewer.pull_dataset("my-dataset-name", limit=50)
-
-# Display the dataset
-viewer.display_dataset(examples, max_display=10)
-
-# Export to CSV (will be saved in datasets/ folder)
-csv_file = viewer.export_to_csv(examples, "my_dataset.csv")
+# Detailed evaluation (for comprehensive analytics)
+def my_detailed_evaluator(run, example):
+    return perform_detailed_eval(run, example)
+    # Returns: Complete metrics including counts, accuracy, format detection
 ```
 
-## Script Explanation
+### Programmatic Usage
+
+You can also use the evaluator functions directly in your code:
+
+```python
+from jira_evaluator import evaluate_jira_truthfulness
+
+# Example dataset row structure
+dataset_row = {
+    'id': 'example-123',
+    'inputs_json': '{"messages": [{"role": "system", "content": "..."}]}',
+    'outputs_json': '{"result": "Analysis mentions JIRA-123 and FAKE-999"}'
+}
+
+# Evaluate truthfulness
+score = evaluate_jira_truthfulness(dataset_row)
+print(f"Truthfulness score: {score}")  # 0 or 1
+```
+
+## How It Works
 
 ### Core Components
 
-1. **LangSmithDatasetViewer Class**
-   - Main class that handles all LangSmith interactions
-   - Manages authentication and API connections
-   - Provides methods for listing, pulling, and displaying datasets
+1. **JIRA Data Extraction**
+   - Automatically detects XML (RSS) vs plain text format
+   - Extracts JIRA tickets between `<<START OF JIRA TICKETS>>` and `<<END OF JIRA TICKETS>>` delimiters
+   - Falls back to searching entire input if no delimiters found
 
-2. **Key Methods:**
-   - `list_datasets()` - Retrieves available datasets from your account
-   - `pull_dataset()` - Downloads examples from a specific dataset
-   - `display_dataset()` - Shows dataset contents in the console
-   - `export_to_csv()` - Saves dataset to a CSV file for analysis
+2. **Key Functions:**
+   - `extract_jira_data_from_input()` - Finds JIRA data and determines format
+   - `extract_jira_ticket_numbers()` - Extracts ticket IDs with XML/regex parsing
+   - `extract_jira_references_from_output()` - Finds JIRA references in AI output
+   - `evaluate_jira_truthfulness()` - Compares input vs output for truthfulness
 
-### How it Works
+### Evaluation Process
 
-1. **Authentication**: The script connects to LangSmith using your API key
-2. **Dataset Discovery**: Lists all available datasets in your account
-3. **Data Retrieval**: Pulls examples from the first dataset (or specified dataset)
-4. **Display**: Shows dataset information and example contents
-5. **Export**: Saves the data to a timestamped CSV file
+1. **Input Processing**: Extract ground truth JIRA tickets from input data
+2. **Format Detection**: Automatically identify XML (RSS) or plain text format
+3. **Ticket Extraction**: Parse tickets using appropriate method (XML or regex)
+4. **Output Analysis**: Find JIRA references in AI-generated content
+5. **Truthfulness Check**: Compare output references against input tickets
+6. **Scoring**: Return binary score (1 = truthful, 0 = contains hallucinations)
 
-### Data Structure
+### Supported Data Formats
 
-Each dataset example contains:
-- **ID**: Unique identifier for the example
-- **Inputs**: The input data (questions, prompts, etc.)
-- **Outputs**: The expected or actual outputs
-- **Created Date**: When the example was created
+#### XML Format (RSS)
+```xml
+<<START OF JIRA TICKETS>>
+<rss><channel>
+  <item><title>[CSMVP-643] Bug in user authentication</title></item>
+  <item><title>[PROJ-123] Feature request for dashboard</title></item>
+</channel></rss>
+<<END OF JIRA TICKETS>>
+```
 
-### CSV Export Format
+#### Plain Text Format
+```text
+Here are the relevant JIRA tickets:
+- BUG-123: Critical authentication issue
+- FEAT-456: Dashboard enhancement request
+- PROJ-789: Database optimization task
+```
 
-CSV files are automatically saved in the `datasets/` folder. The exported CSV contains:
-- `id`: Example ID
-- `created_at`: Creation timestamp
-- `inputs_json`: JSON string of input data
-- `outputs_json`: JSON string of output data
+### Expected Input Structure
+
+Your dataset should contain rows with:
+- `id`: Unique identifier for the example
+- `inputs_json`: JSON string containing the input with JIRA data
+- `outputs_json`: JSON string containing AI-generated output to evaluate
 
 ## Example Output
 
+### Testing with `test_with_real_data.py`
+
 ```
-🚀 LangSmith Dataset Viewer
+🚀 JIRA Evaluator Test Suite
+============================================================
+🧪 Testing JIRA extraction with real dataset...
+
+📂 Loading dataset: datasets/langsmith_dataset_20250725_155130.csv
+📊 Dataset loaded: 142 rows
+
+📊 Dataset contains 142 total rows
+How many rows to test? (1-5, or 'all' for ALL 142 rows): all
+✅ Will process ALL 142 rows in batches of 5 for better readability
+
+🎯 Testing with 142 rows...
+📦 Processing in batches for better performance and readability
+
+🗂️ BATCH 1/29 (Rows 1-5)
 ==================================================
-✅ Successfully connected to LangSmith
 
-📂 Available datasets:
-1. qa-evaluation-set
-   Description: Question-answering evaluation dataset
-   Created: 2024-01-15 10:30:45
-   Examples: 150
+📄 ROW 1/142
+----------------------------------------
+🆔 Row ID: 2b5c3e7a-8f9d-4e1a-b2c3-d4e5f6789abc
+🔖 Has delimiters: True
+🔍 Processing method: XML parsing (then regex fallback if needed)
+🎫 Found 15 unique JIRA ticket numbers from XML parsing
+✅ Row 1: 🔖 XML | Input(15) → Output(3) | Valid: 3, Invalid: 0 | Score: 1 (TRUTHFUL)
 
-2. customer-support-data
-   Description: Customer support conversations
-   Created: 2024-01-20 14:22:30
-   Examples: 500
+📄 ROW 2/142
+----------------------------------------
+🆔 Row ID: 3c6d4e8b-9f0e-5f2b-c3d4-e5f6g7890def
+🔖 Has delimiters: False
+🔍 Processing method: Direct regex pattern matching
+🎫 Found 8 unique JIRA ticket numbers from regex (no delimiters)
+❌ Row 2: 📝 Text | Input(8) → Output(5) | Valid: 3, Invalid: 2 | Score: 0 (UNTRUTHFUL)
 
-🎯 Select a dataset to pull:
+📊 BATCH 1 SUMMARY:
+   ✅ Rows with JIRA data: 5/5
+   🎯 Truthful rows: 4/5
+   📈 Progress: 5/142 rows (3.5%)
 
-Enter dataset number (1-2) or 'q' to quit: 1
+🎉 PROCESSING COMPLETE!
+✅ Successfully processed all 142 rows
 
-🎯 Selected: qa-evaluation-set
-
-How many examples to pull? (Enter number or 'all' for everything): 50
-📥 Will pull 50 examples
-
-📥 Pulling dataset 'qa-evaluation-set'...
-📊 Dataset found: qa-evaluation-set
-📝 Description: Question-answering evaluation dataset
-✅ Successfully pulled 50 examples
-
-📋 Dataset Summary:
-Total examples: 50
-
-🔍 Displaying first 3 examples in detail:
+🎯 DETAILED ANALYSIS SUMMARY
 ================================================================================
+📊 Rows processed: 142
+✅ Rows with JIRA data: 138
+📈 JIRA data success rate: 97.2%
 
-Example 1:
-  ID: 550e8400-e29b-41d4-a716-446655440000
-  Created: 2024-01-15 10:30:45
-  Inputs: {
-      "question": "What is the capital of France?"
-  }
-  Outputs: {
-      "answer": "Paris"
-  }
+🔍 DELIMITER ANALYSIS:
+   🔖 Rows with delimiters (XML format): 95
+   📝 Rows without delimiters (plain text): 43
+   📊 Delimiter presence rate: 68.8%
 
-💾 Dataset exported to: datasets/langsmith_dataset_20240122_143052.csv
-✨ Done! Check the 'datasets/langsmith_dataset_20240122_143052.csv' file for the complete dataset.
+🏆 OVERALL TRUTHFULNESS SCORE:
+   📊 Truthful rows: 124/138
+   📈 Truthfulness rate: 89.9%
+
+🔍 TRUTHFULNESS ANALYSIS:
+   ✅ Valid AI references: 1,247 (AI mentioned real tickets)
+   ❌ Invalid AI references: 43 (AI possibly hallucinated)
+   📊 AI Reference Accuracy: 96.7%
+```
+
+### Simple Evaluation Output
+
+```python
+result = perform_eval(run, example)
+print(result)
+# Output: {"truthfulness": 1}
+```
+
+### Detailed Evaluation Output
+
+```python
+result = perform_detailed_eval(run, example)
+print(result)
+# Output:
+{
+    "truthfulness": 0,
+    "input_ticket_count": 15,
+    "output_reference_count": 8,
+    "valid_reference_count": 6,
+    "invalid_reference_count": 2,
+    "unreferenced_ticket_count": 9,
+    "accuracy_rate": 0.75,
+    "has_delimiters": True,
+    "format_detected": "xml",
+    "invalid_references": ["FAKE-999", "NONEXISTENT-123"],
+    "valid_references": ["CSMVP-643", "CSMVP-601", "BUG-789"]
+}
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **"langsmith package not found"**
-   ```bash
-   pip install langsmith
-   ```
+1. **"No JIRA data found in input"**
+   - Verify your dataset contains JIRA ticket delimiters: `<<START OF JIRA TICKETS>>` and `<<END OF JIRA TICKETS>>`
+   - Check that JIRA tickets follow expected patterns: `PROJECT-123` format
+   - Ensure input data is properly formatted JSON in the `inputs_json` column
 
-2. **"LangSmith API key not found"**
-   - Make sure you've set the LANGSMITH_API_KEY environment variable
-   - Check that the API key is valid and active
+2. **"XML parsing failed"**
+   - This is normal for plain text data - the system automatically falls back to regex parsing
+   - If consistently failing, verify XML structure follows RSS format: `<item><title>[TICKET-123] Description</title></item>`
 
-3. **"Failed to connect to LangSmith"**
-   - Verify your internet connection
-   - Check if your API key has the correct permissions
-   - Ensure you're not behind a firewall blocking the connection
+3. **"No datasets found" (when using test_with_real_data.py)**
+   - Make sure you have CSV files in the `datasets/` directory
+   - Verify CSV files contain required columns: `id`, `inputs_json`, `outputs_json`
 
-4. **"No datasets found"**
-   - Make sure you have datasets in your LangSmith account
-   - Check that your API key has read permissions
+4. **Low truthfulness scores**
+   - Check if AI output contains JIRA references not present in input data
+   - Verify input data contains all legitimate JIRA tickets the AI should reference
+   - Review the invalid_references list in detailed evaluation output
+
+5. **Performance issues with large datasets**
+   - Use the batch processing feature (built into test_with_real_data.py)
+   - Consider testing with smaller subsets first using the row limit option
+
+### Data Format Validation
+
+Ensure your CSV dataset has the correct structure:
+
+```csv
+id,inputs_json,outputs_json
+"example-1","{\"messages\":[{\"role\":\"system\",\"content\":\"...<<START OF JIRA TICKETS>>...\"}]}","{\"result\":\"Analysis mentions PROJ-123\"}"
+```
 
 ### Getting Help
 
-- Check the [LangSmith Documentation](https://docs.smith.langchain.com/)
-- Visit the [LangChain Discord](https://discord.gg/langchain) for community support
-- Review your API key permissions in the LangSmith dashboard
+- Check function documentation within the code files
+- Review the built-in test examples in `jira_evaluator.py`
+- Verify your JIRA ticket patterns match the regex: `[A-Z]{2,10}-\d{1,6}`
 
 ## Customization
 
-### Modifying Display Limits
+### Modifying JIRA Ticket Patterns
 
-Change the number of datasets or examples shown:
-
-```python
-# Show more datasets
-datasets = viewer.list_datasets(limit=50)
-
-# Pull more examples
-examples = viewer.pull_dataset(dataset_name, limit=100)
-
-# Display more examples in detail
-viewer.display_dataset(examples, max_display=10)
-```
-
-### Custom Export Formats
-
-You can extend the script to export in different formats:
+Customize the regex pattern to match your specific JIRA ticket format:
 
 ```python
-import json
+# In jira_evaluator.py or jira_evaluator_final.py, modify this pattern:
+ticket_pattern = r'\b[A-Z]{2,10}-\d{1,6}\b'
 
-# Export to JSON
-def export_to_json(examples, filename):
-    with open(filename, 'w') as f:
-        json.dump(examples, f, indent=2)
+# Examples of custom patterns:
+# For tickets like "MYPROJECT-12345":
+ticket_pattern = r'\bMYPROJECT-\d{1,6}\b'
+
+# For multiple specific projects:
+ticket_pattern = r'\b(?:PROJ|BUG|FEAT|TASK)-\d{1,6}\b'
+
+# For different number ranges:
+ticket_pattern = r'\b[A-Z]{2,8}-\d{1,10}\b'
 ```
+
+### Custom Delimiters
+
+Change the delimiters used to identify JIRA data sections:
+
+```python
+# In extract_jira_data_from_input function:
+start_delimiter = "<<START OF JIRA TICKETS>>"
+end_delimiter = "<<END OF JIRA TICKETS>>"
+
+# Customize to your format:
+start_delimiter = "--- JIRA TICKETS BEGIN ---"
+end_delimiter = "--- JIRA TICKETS END ---"
+```
+
+### Adding Custom Evaluation Metrics
+
+Extend the detailed evaluator with custom metrics:
+
+```python
+def custom_detailed_eval(run, example):
+    result = perform_detailed_eval(run, example)
+    
+    # Add custom metrics
+    result["custom_metric"] = calculate_my_metric(run, example)
+    result["confidence_score"] = calculate_confidence(result)
+    
+    return result
+```
+
+### Batch Size Configuration
+
+Adjust batch processing size in `test_with_real_data.py`:
+
+```python
+# Change this line in test_with_real_data.py:
+batch_size = 5  # Modify to your preferred batch size
+```
+
+## LangSmith Deployment Guide
+
+### Setting up as a Custom Evaluator
+
+1. **Upload the evaluator file** to your LangSmith workspace
+2. **Create a new evaluator** in the LangSmith UI
+3. **Configure the evaluator function**:
+
+```python
+# For simple binary evaluation
+from jira_evaluator_final import perform_eval as evaluator
+
+# For detailed metrics
+from jira_evaluator_final import perform_detailed_eval as evaluator
+```
+
+### Production Considerations
+
+- Use `jira_evaluator_final.py` for production (optimized, less verbose)
+- Use `jira_evaluator.py` for development and debugging (detailed logging)
+- Monitor evaluation performance with large datasets
+- Consider implementing caching for repeated evaluations
 
 ## Security Notes
 
-- Keep your API key secure and never commit it to version control
 - The included `.gitignore` file protects sensitive data:
-  - API keys (`.env` files)
-  - Dataset exports (`datasets/` folder and `*.csv` files)
+  - Dataset files (`datasets/` folder and `*.csv` files)  
   - Virtual environment files
-- Use environment variables or .env files for production deployments
-- Regularly rotate your API keys
-- Be mindful of data privacy when exporting datasets
+  - Temporary test files
+- Be mindful of data privacy when working with JIRA ticket data
+- Ensure JIRA ticket information complies with your organization's data policies
+- Review AI outputs for sensitive information before evaluation
+
+## Advanced Features
+
+### Format Detection
+
+The evaluator automatically detects and handles:
+- **XML Format**: RSS feeds with `<item><title>[TICKET-123] Description</title></item>`
+- **Plain Text**: JIRA tickets in any text format matching the regex pattern
+- **Mixed Datasets**: Automatically processes both formats in the same dataset
+
+### Error Handling
+
+Robust error handling ensures:
+- **Conservative scoring**: Returns 0 (untruthful) on parsing errors
+- **Graceful fallbacks**: XML parsing failures fall back to regex
+- **Detailed error reporting**: Error information included in detailed evaluation results
 
 ## License
 
-This script is provided as-is for educational and development purposes. Please ensure compliance with LangSmith's terms of service when using their API.
+This evaluator is provided as-is for educational and production use. Please ensure compliance with your organization's policies regarding JIRA data handling and AI evaluation practices.
 
 ---
 
-**Happy dataset exploring! 🚀** 
+**Happy JIRA truthfulness evaluation! 🎯** 
