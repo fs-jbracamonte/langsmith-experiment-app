@@ -11,13 +11,9 @@ automatically detecting the format and applying the appropriate parsing method.
 USAGE IN LANGSMITH:
 ==================
 
-1. Simple Evaluation (Binary Score):
-   - Use: perform_eval(run, example)
-   - Returns: {"truthfulness": 1 or 0}
-
-2. Detailed Evaluation (With Metadata):
-   - Use: perform_detailed_eval(run, example)
-   - Returns: Comprehensive metrics including counts, accuracy, format detection, etc.
+- Use: perform_eval(run, example)
+- Returns: {"truthfulness": 1 or 0}
+- Simple, efficient binary evaluation optimized for production LangSmith deployment
 
 EXPECTED INPUT FORMAT:
 =====================
@@ -252,116 +248,6 @@ def perform_eval(run, example):
     except Exception as e:
         # In case of error, default to untruthful to be conservative
         return {"truthfulness": 0}
-
-
-def perform_detailed_eval(run, example):
-    """
-    Evaluate the truthfulness of JIRA ticket references with detailed metadata.
-    
-    This comprehensive evaluator provides additional metrics and debugging information
-    useful for analysis and monitoring in LangSmith.
-    
-    Args:
-        run: Run object containing AI output
-        example: Example object containing input data with JIRA tickets
-    
-    Returns:
-        dict: Detailed evaluation results including truthfulness score and metadata
-    """
-    try:
-        # Extract JIRA tickets from input data (ground truth)
-        input_content = ""
-        
-        # Handle different input structures
-        if ("inputs" in example and 
-            "messages" in example["inputs"] and 
-            len(example["inputs"]["messages"]) > 0 and
-            "content" in example["inputs"]["messages"][0]):
-            input_content = example["inputs"]["messages"][0]["content"]
-        elif "inputs" in example and isinstance(example["inputs"], str):
-            input_content = example["inputs"]
-        elif hasattr(example, 'inputs') and hasattr(example.inputs, 'get'):
-            # Handle LangSmith Example object
-            messages = example.inputs.get("messages", [])
-            if messages and len(messages) > 0 and "content" in messages[0]:
-                input_content = messages[0]["content"]
-        
-        # Extract JIRA data with metadata
-        jira_raw_data, has_delimiters = extract_jira_data_from_input(input_content)
-        input_tickets = extract_jira_ticket_numbers(jira_raw_data, has_delimiters) if jira_raw_data else []
-        
-        # Extract JIRA references from AI output
-        output_content = ""
-        
-        # Handle different output structures
-        if ("outputs" in run and 
-            "message" in run["outputs"] and 
-            "content" in run["outputs"]["message"]):
-            output_content = run["outputs"]["message"]["content"]
-        elif "outputs" in run and "output" in run["outputs"]:
-            output_content = str(run["outputs"]["output"])
-        elif hasattr(run, 'outputs') and hasattr(run.outputs, 'get'):
-            # Handle LangSmith Run object
-            if "content" in run.outputs:
-                output_content = run.outputs["content"]
-            elif "message" in run.outputs:
-                output_content = str(run.outputs["message"])
-            else:
-                output_content = str(run.outputs)
-        
-        output_references = extract_jira_references_from_output(output_content)
-        
-        # Calculate detailed metrics
-        input_set = set(input_tickets)
-        output_set = set(output_references)
-        
-        valid_references = output_set.intersection(input_set)
-        invalid_references = output_set - input_set
-        unreferenced_tickets = input_set - output_set
-        
-        # Determine final truthfulness score
-        truthfulness_score = 1 if len(invalid_references) == 0 else 0
-        
-        # Handle edge case: no output references
-        if not output_references:
-            truthfulness_score = 1  # No references is considered truthful
-        
-        # Handle edge case: no input tickets but AI made references
-        if not input_tickets and output_references:
-            truthfulness_score = 0  # Unverifiable references are untruthful
-        
-        # Calculate accuracy rate
-        accuracy_rate = 0.0
-        if len(output_references) > 0:
-            accuracy_rate = len(valid_references) / len(output_references)
-        
-        return {
-            "truthfulness": truthfulness_score,
-            "input_ticket_count": len(input_tickets),
-            "output_reference_count": len(output_references),
-            "valid_reference_count": len(valid_references),
-            "invalid_reference_count": len(invalid_references),
-            "unreferenced_ticket_count": len(unreferenced_tickets),
-            "accuracy_rate": accuracy_rate,
-            "has_delimiters": has_delimiters,
-            "format_detected": "xml" if has_delimiters else "text",
-            "invalid_references": list(invalid_references)[:5],  # Limit to 5 for brevity
-            "valid_references": list(valid_references)[:5]  # Limit to 5 for brevity
-        }
-        
-    except Exception as e:
-        # In case of error, return detailed error info
-        return {
-            "truthfulness": 0,
-            "error": str(e),
-            "input_ticket_count": 0,
-            "output_reference_count": 0,
-            "valid_reference_count": 0,
-            "invalid_reference_count": 0,
-            "accuracy_rate": 0.0,
-            "has_delimiters": False,
-            "format_detected": "error"
-        }
 
 
 # For backward compatibility and simple use cases
