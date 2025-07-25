@@ -114,17 +114,12 @@ The script will:
 For production use in LangSmith, use `jira_evaluator_final.py`:
 
 ```python
-from jira_evaluator_final import perform_eval, perform_detailed_eval
+from jira_evaluator_final import perform_eval
 
-# Simple binary evaluation (for basic scoring)
+# Binary truthfulness evaluation for LangSmith
 def my_evaluator(run, example):
     return perform_eval(run, example)
     # Returns: {"truthfulness": 1 or 0}
-
-# Detailed evaluation (for comprehensive analytics)
-def my_detailed_evaluator(run, example):
-    return perform_detailed_eval(run, example)
-    # Returns: Complete metrics including counts, accuracy, format detection
 ```
 
 ### Programmatic Usage
@@ -272,26 +267,7 @@ print(result)
 # Output: {"truthfulness": 1}
 ```
 
-### Detailed Evaluation Output
 
-```python
-result = perform_detailed_eval(run, example)
-print(result)
-# Output:
-{
-    "truthfulness": 0,
-    "input_ticket_count": 15,
-    "output_reference_count": 8,
-    "valid_reference_count": 6,
-    "invalid_reference_count": 2,
-    "unreferenced_ticket_count": 9,
-    "accuracy_rate": 0.75,
-    "has_delimiters": True,
-    "format_detected": "xml",
-    "invalid_references": ["FAKE-999", "NONEXISTENT-123"],
-    "valid_references": ["CSMVP-643", "CSMVP-601", "BUG-789"]
-}
-```
 
 ## Troubleshooting
 
@@ -313,7 +289,7 @@ print(result)
 4. **Low truthfulness scores**
    - Check if AI output contains JIRA references not present in input data
    - Verify input data contains all legitimate JIRA tickets the AI should reference
-   - Review the invalid_references list in detailed evaluation output
+   - Use the development version (`jira_evaluator.py`) for detailed debugging information
 
 5. **Performance issues with large datasets**
    - Use the batch processing feature (built into test_with_real_data.py)
@@ -371,13 +347,14 @@ end_delimiter = "--- JIRA TICKETS END ---"
 
 ### Adding Custom Evaluation Metrics
 
-Extend the detailed evaluator with custom metrics:
+Extend the simple evaluator with additional metrics if needed:
 
 ```python
-def custom_detailed_eval(run, example):
-    result = perform_detailed_eval(run, example)
+def custom_evaluator(run, example):
+    # Get the basic truthfulness result
+    result = perform_eval(run, example)
     
-    # Add custom metrics
+    # Add custom metrics if needed
     result["custom_metric"] = calculate_my_metric(run, example)
     result["confidence_score"] = calculate_confidence(result)
     
@@ -402,11 +379,8 @@ batch_size = 5  # Modify to your preferred batch size
 3. **Configure the evaluator function**:
 
 ```python
-# For simple binary evaluation
+# Binary truthfulness evaluation
 from jira_evaluator_final import perform_eval as evaluator
-
-# For detailed metrics
-from jira_evaluator_final import perform_detailed_eval as evaluator
 ```
 
 ### Production Considerations
